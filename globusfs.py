@@ -7,6 +7,7 @@
 """Mount a Globus endpoint with FUSE."""
 
 import argparse
+import errno
 import os
 import stat
 import time
@@ -46,24 +47,34 @@ class GlobusFS(Operations):
             for file_info in data['DATA']:
                 now = time.time()
                 f_type = stat.S_IFDIR if file_info['type'] == 'dir' else stat.S_IFREG
-                permissions = int(file_info['permissions'])
+                permissions = int(file_info['permissions'], 8)  # permissions are octal
 
                 self.files[os.path.join(path, file_info['name'])] = {
                     'st_atime': now,
                     'st_mtime': now,  # TODO: last_modified is an actual field we can use
                     'st_ctime': now,
                     'st_nlink': 2,
-                    'st_mode': (f_type | permissions)
+                    'st_mode': (f_type | permissions),
+                    'st_size': file_info['size']
                 }
         return 0
 
+    # TODO: what if the first thing we do is ls a subdirectory
+    # TODO: mkdir: need to add entry to the parent directory
+
     def getattr(self, path, fh=None):
         print 'getattr', path
+        if path not in self.files:
+            raise FuseOSError(errno.ENOENT)
         return self.files[path]
     
     def mkdir(self, path, mode):
         print 'mkdir', path
         self.api.endpoint_mkdir(self.endpoint, path)
+        self.dirs[path] = []
+        now = time.time()
+        self.files[path] = {'st_atime': now, 'st_mtime': now, 'st_ctime': now,
+                            'st_nlink': 2, 'st_mode': (stat.S_IFDIR | 0755)}
 
     def readdir(self, path, fh):
         print 'readdir', path

@@ -18,6 +18,9 @@ from globusonline.transfer.api_client import goauth, TransferAPIClient
 
 class GlobusFS(Operations):
 
+    # TODO: encryption
+    # TODO: tests
+
     def __init__(self, endpoint):
         # Get credentials and activate endpoint.
         auth_result = goauth.get_access_token()
@@ -33,51 +36,53 @@ class GlobusFS(Operations):
         self.files = {'/': root_stat}  # Map filepath to stat() file info dictionaries.
         self.dirs = {}  # Map dirname to list of filenames.
 
+    def _LoadDir(self, path):
+        """Load directory information from endpoint, saving results in memory."""
+        print '\t--> Loading directory %s from Globus' % path
+        _, _, data = self.api.endpoint_ls(self.endpoint, path=path)
 
-    def access(self, path, amode):
-        """Pre-emptively read file metadata when accessing a new directory."""
-        print 'access', path, amode
-        if path not in self.dirs:
-            _, _, data = self.api.endpoint_ls(self.endpoint, path=path)
+        # Add list of file names to directory (for readdir())
+        self.dirs[path] = [x['name'] for x in data['DATA']]
 
-            # Add list of file names to directory (for readdir())
-            self.dirs[path] = [x['name'] for x in data['DATA']]
-
-            # Add file metadata (for getattr())
-            for file_info in data['DATA']:
-                now = time.time()
-                f_type = stat.S_IFDIR if file_info['type'] == 'dir' else stat.S_IFREG
-                permissions = int(file_info['permissions'], 8)  # permissions are octal
-
-                self.files[os.path.join(path, file_info['name'])] = {
-                    'st_atime': now,
-                    'st_mtime': now,  # TODO: last_modified is an actual field we can use
-                    'st_ctime': now,
-                    'st_nlink': 2,
-                    'st_mode': (f_type | permissions),
-                    'st_size': file_info['size']
-                }
-        return 0
-
-    # TODO: what if the first thing we do is ls a subdirectory
-    # TODO: mkdir: need to add entry to the parent directory
+        # Add file metadata (for getattr())
+        for file_info in data['DATA']:
+            f_type = stat.S_IFDIR if file_info['type'] == 'dir' else stat.S_IFREG
+            permissions = int(file_info['permissions'], 8)  # permissions are octal
+            now = time.time()
+            self.files[os.path.join(path, file_info['name'])] = {
+                'st_atime': now,
+                'st_mtime': now,  # TODO: last_modified is an actual field we can use
+                'st_ctime': now,
+                'st_nlink': 2,
+                'st_mode': (f_type | permissions),
+                'st_size': file_info['size']
+            }
 
     def getattr(self, path, fh=None):
-        print 'getattr', path
+        """Get metadata for a specific file/directory."""
+        # Load the parent directory if we haven't already.
+        dirname = os.path.dirname(path)
+        if dirname not in self.dirs:
+            self._LoadDir(dirname)
+        # Raise an error if the file doesn't exist.
         if path not in self.files:
             raise FuseOSError(errno.ENOENT)
         return self.files[path]
     
     def mkdir(self, path, mode):
-        print 'mkdir', path
+        # Add directory on endpoint.
         self.api.endpoint_mkdir(self.endpoint, path)
+        # Add directory entries in memory.
         self.dirs[path] = []
+        self.dirs[os.path.dirname(path)].append(os.path.basename(path))
+        # Add file entry in memory.
         now = time.time()
         self.files[path] = {'st_atime': now, 'st_mtime': now, 'st_ctime': now,
                             'st_nlink': 2, 'st_mode': (stat.S_IFDIR | 0755)}
 
     def readdir(self, path, fh):
-        print 'readdir', path
+        if path not in self.dirs:
+            self._LoadDir(path)
         return ['.', '..'] + self.dirs[path]
 
 

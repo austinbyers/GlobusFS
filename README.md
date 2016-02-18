@@ -14,6 +14,8 @@ is already included in the repo (``fuse.py``).
 ## Usage
 Note that you must be root to use FUSE.
 
+Right now, supported commands are ``cd``, ``ls``, ``mkdir``, and ``rmdir``.
+
 Mounting an endpoint:
 ``mkdir mnt``
 ``sudo python globusfs.py 'go#ep1' mnt``

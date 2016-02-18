@@ -20,6 +20,8 @@ class GlobusFS(Operations):
 
     # TODO: encryption
     # TODO: tests
+    # TODO: queue requests into batches (e.g. rm -r should not send so many reqs)
+    # TODO: we probably must update cache every now and then to pull updates
 
     def __init__(self, endpoint):
         # Get credentials and activate endpoint.
@@ -55,9 +57,9 @@ class GlobusFS(Operations):
             now = time.time()
             self.files[os.path.join(path, file_info['name'])] = {
                 'st_atime': now,
-                'st_mtime': now,  # TODO: last_modified is an actual field we can use
+                'st_mtime': now,  # TODO: grab last_modified time from response
                 'st_ctime': now,
-                'st_nlink': 3,
+                'st_nlink': 2,
                 'st_mode': (f_type | permissions),
                 'st_size': file_info['size']
             }
@@ -66,6 +68,21 @@ class GlobusFS(Operations):
         """Get a new task id."""
         _, _, result = self.api.transfer_submission_id()
         return result['value']
+
+    def _Copy(self, src_path, dest_path):
+        """Submit a task to recursively copy to and from the same endpoint."""
+        # TODO: should be recursive only if directory
+        rename_task = api_client.Transfer(self._TaskID(), self.endpoint, self.endpoint)
+        rename_task.add_item(src_path, dest_path, recursive=True)
+        _, _, data = self.api.transfer(rename_task)
+        print data['message']
+
+    def _Delete(self, path):
+        """Submit a task to recursively delete the given path."""
+        delete_task = api_client.Delete(self._TaskID(), self.endpoint, recursive=True)
+        delete_task.add_item(path)
+        _, _, data = self.api.delete(delete_task)
+        print data['message']
 
     def getattr(self, path, fh=None):
         """Get metadata for a specific file/directory."""
@@ -77,8 +94,10 @@ class GlobusFS(Operations):
         return self.files[path]
     
     def mkdir(self, path, mode):
+        """Make a new directory."""
         # Add directory on endpoint.
-        self.api.endpoint_mkdir(self.endpoint, path)
+        _, _, data = self.api.endpoint_mkdir(self.endpoint, path)
+        print data['message']
         # Add directory entries in memory.
         self.dirs[path] = []
         self.dirs[os.path.dirname(path)].append(os.path.basename(path))
@@ -92,6 +111,15 @@ class GlobusFS(Operations):
         self._LoadDir(path)
         return ['.', '..'] + self.dirs[path]
 
+    def rename(self, old, new):
+        """Rename a file/directory by submitting a transfer."""
+        raise FuseOSError(EROFS)
+        # TODO: is there an API call to do this more efficiently?
+        # TODO: will this cause asynchronous issues?
+        # Copy file to new location.
+        # self._Copy(old, new)
+        # self._Delete(old)
+
     def rmdir(self, path):
         """Remove an empty directory."""
         self._LoadDir(path)
@@ -99,17 +127,20 @@ class GlobusFS(Operations):
             # Directory not empty.
             raise FuseOSError(errno.ENOTEMPTY)
         # Submit task to remove directory from endpoint.
-        delete_task = api_client.Delete(self._TaskID(), self.endpoint, recursive=True)
-        delete_task.add_item(path)
-        self.api.delete(delete_task)
+        self._Delete(path)
         # Remove entry from the saved metadata.
         self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
 
+    def unlink(self, path):
+        """Unlink (remove) a file."""
+        self._Delete(path)
+        # Remove entry from the saved metadata.
+        self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('endpoint', help='Globus endoint name')
-    parser.add_argument('mountpoint', help='Local mount point')
+    parser.add_argument('mountpoint', help='Local mount path')
     args = parser.parse_args()
 
     if os.geteuid() != 0:

@@ -14,7 +14,7 @@ is already included in the repo (``fuse.py``).
 ## Usage
 Note that you must be root to use FUSE.
 
-Right now, supported commands are ``cd``, ``ls``, ``mkdir``, and ``rmdir``.
+Right now, supported commands are ``cd``, ``ls``, ``rm``, ``mkdir``, and ``rmdir``.
 
 Mounting an endpoint:
 ``mkdir mnt``

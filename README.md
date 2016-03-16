@@ -17,8 +17,10 @@ Note that you must be root to use FUSE.
 Right now, supported commands are ``cd``, ``ls``, ``rm``, ``mkdir``, and ``rmdir``.
 
 Mounting an endpoint:
-``mkdir mnt``
-``sudo python globusfs.py 'go#ep1' mnt``
+```
+mkdir mnt
+sudo python globusfs.py 'go#ep1' mnt
+```
 
 This process will continue running to respond to fs events.
 You can explore the mount point in a new terminal window:

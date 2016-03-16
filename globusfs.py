@@ -130,6 +130,7 @@ class GlobusFS(Operations):
         self._Delete(path)
         # Remove entry from the saved metadata.
         self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
+        del self.files[path]
 
     def unlink(self, path):
         """Unlink (remove) a file."""

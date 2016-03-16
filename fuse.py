@@ -699,6 +699,7 @@ class FUSE(object):
                                        idx)
 
 
+import datetime
 class Operations(object):
     '''
     This class should be subclassed and passed as an argument to FUSE on
@@ -710,6 +711,8 @@ class Operations(object):
     '''
 
     def __call__(self, op, *args):
+        now = datetime.datetime.now()
+        print '[fuse %02d:%02d:%02d.%d]' % (now.hour, now.minute, now.second, now.microsecond), op, args
         if not hasattr(self, op):
             raise FuseOSError(EFAULT)
         return getattr(self, op)(*args)

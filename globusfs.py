@@ -114,6 +114,23 @@ class GlobusFS(Operations):
     #    FS Commands   #
     ####################
 
+    def create(self, path, mode, fi=None):
+        """Create a new file."""
+        # Add file to metadata.
+        now = time.time()
+        self.files[path] = {'st_atime': now, 'st_mtime': now, 'st_ctime': now,
+        'st_nlink': 2, 'st_mode': mode}
+
+        # Add to its parent directory list.
+        self.dirs[os.path.dirname(path)].append(os.path.basename(path))
+
+        # Add file to the cache.
+        cache_file = os.path.join(self.cache_dir, os.path.basename(path))
+        f = self.cache[path] = open(cache_file, mode='w+')
+        print f.fileno()
+
+        return 0
+
     def destroy(self, path):
         """Called on filesystem destruction. Path is always /"""
         shutil.rmtree(self.cache_dir)
@@ -170,10 +187,10 @@ class GlobusFS(Operations):
 
             if not success:
                 # Timeout - TODO: cancel task
-                raise FuseOSError(EROFS)
+                raise FuseOSError(errno.EROFS)
 
         # Open the file and return a file handle.
-        f = self.cache[path] = open(cache_file, mode='r+')
+        f = self.cache[path] = os.fdopen(os.open(cache_file, flags))
         return f.fileno()
 
     def read(self, path, size, offset, fh):
@@ -217,6 +234,13 @@ class GlobusFS(Operations):
         self._Delete(path)
         # Remove entry from the saved metadata.
         self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
+
+    def write(self, path, data, offset, fh):
+        """Write data to a file."""
+        f = self.cache[path]
+        f.seek(offset)
+        f.write(data)
+        return len(data)
 
 def main():
     # TODO: Note that the local endpoint needs to be the "legacy name"

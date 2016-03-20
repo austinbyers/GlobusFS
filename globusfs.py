@@ -119,7 +119,7 @@ class GlobusFS(Operations):
         # Add file to metadata.
         now = time.time()
         self.files[path] = {'st_atime': now, 'st_mtime': now, 'st_ctime': now,
-        'st_nlink': 2, 'st_mode': mode}
+        'st_nlink': 2, 'st_mode': mode, 'st_size': 0}
 
         # Add to its parent directory list.
         self.dirs[os.path.dirname(path)].append(os.path.basename(path))
@@ -127,7 +127,6 @@ class GlobusFS(Operations):
         # Add file to the cache.
         cache_file = os.path.join(self.cache_dir, os.path.basename(path))
         f = self.cache[path] = open(cache_file, mode='w+')
-        print f.fileno()
 
         return 0
 
@@ -207,6 +206,7 @@ class GlobusFS(Operations):
     def release(self, path, fh):
         """Release a file after reading it."""
         self.cache[path].close()
+        return 0
 
     def rename(self, old, new):
         """Rename a file/directory by submitting a transfer."""
@@ -228,18 +228,24 @@ class GlobusFS(Operations):
         # Remove entry from the saved metadata.
         self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
         del self.files[path]
+        return 0
 
     def unlink(self, path):
         """Unlink (remove) a file."""
         self._Delete(path)
         # Remove entry from the saved metadata.
         self.dirs[os.path.dirname(path)].remove(os.path.basename(path))
+        return 0
 
     def write(self, path, data, offset, fh):
         """Write data to a file."""
+        # Write data to the local cache.
         f = self.cache[path]
         f.seek(offset)
         f.write(data)
+        # Update file size.
+        f_size = self.files[path]['st_size']
+        self.files[path]['st_size'] = max(f_size, offset + len(data))
         return len(data)
 
 def main():

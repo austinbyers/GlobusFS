@@ -17,6 +17,7 @@ import cache
 
 
 class GlobusFS(Operations):
+    """Intercept filesystem commands and send them to Globus."""
 
     # TODO: encryption
     # TODO: tests
@@ -41,6 +42,8 @@ class GlobusFS(Operations):
         # Cache file data in local endpoint.
         self.file_cache = cache.FileCache(self.api, local_path)
 
+        print 'Ready!'
+
     ####################
     #    FS Commands   #
     ####################
@@ -53,6 +56,8 @@ class GlobusFS(Operations):
 
     def destroy(self, path):
         """Called on filesystem destruction. Path is always /"""
+        print 'EXIT: Waiting to sync pending changes...'
+        self.api.Close()
         self.file_cache.Destroy()
 
     def flush(self, path, fh):
@@ -100,11 +105,7 @@ class GlobusFS(Operations):
 
     def rename(self, old, new):
         """Rename a file/directory by submitting a transfer."""
-        # TODO: is there an API call to do this more efficiently?
-        # TODO: will this cause asynchronous issues?
-        # Copy file to new location.
-        #self._Copy(old, new)
-        #self._Delete(old)
+        self.api.Rename(old, new)
         self.metadata.Rename(old, new)
 
     def rmdir(self, path):

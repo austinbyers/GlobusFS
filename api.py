@@ -60,7 +60,7 @@ class GlobusAPI(object):
         task_id = data['task_id']
 
         success = False
-        for _ in xrange(timeout):
+        for _ in xrange(timeout_secs):
             status, msg, data = self.api.task(task_id)
             if data['completion_time']:
                 success = True
@@ -90,22 +90,15 @@ class GlobusAPI(object):
 
     def Rename(self, old_path, new_path):
         """Move/Rename a file on the remote endpoint."""
-        # Copy the file to its new location.
-        rename_task = api_client.Transfer(
-            self.SubmissionID(), self.remote_endpoint, self.remote_endpoint)
-        rename_task.add_item(old_path, new_path, recursive=True)
-        status, msg, data = self.api.transfer(rename_task)
-        print data['message']
-
-        # Then delete the original.
-        self.Delete(old_path)
+        self.task_queue.AddTransfer(self.remote_endpoint, old_path, self.remote_endpoint, new_path)
+        self.task_queue.AddDeletion(self.remote_endpoint, old_path)
 
 
 class AsyncTaskQueue(object):
     """Asynchronous task queue. This allows us to batch related requests together.
 
     For example, recurisvely removing a directory would make dozens of calls to api.Delete().
-    Rather than sending the requests individually, this class allows us to batch them together,
+    Rather than sending the requests individually, we batch them together here,
     reducing network overhead and improving performance.
     """
 
@@ -116,7 +109,7 @@ class AsyncTaskQueue(object):
         #     Globus api_client task to submit
         self.queue = []
 
-        self.api = api  # GlobusAPI() object.
+        self.api = api  # GlobusAPI() wrapper (has access to SubmissionID)
         self.direct_api = api.api  # Underlying api object.
         self.lock = threading.Lock()
         self.last_change = time.time()  # Time of last task submission.
@@ -132,18 +125,37 @@ class AsyncTaskQueue(object):
     def HandleTasks(self):
         """Async function: wake up every so often and process the pending tasks."""
         while True:
-            with self.lock:
-                if self.closing or time.time() - self.last_change > 5:
-                    # We're closing or the last change was more than 5 seconds ago; push changes.
-                    print 'Clearing task queue...'
-                    for descriptor, task in self.queue:
-                        if descriptor[0] == 'delete':
-                            _, _, data = self.direct_api.delete(task)
-                            print 't' + data['message']
+            # Copy the relevant tasks so the lock can be released.            
+            if self.closing or time.time() - self.last_change > 3:
+                # We're closing or the last change was more than 3 seconds ago; push changes.
+                queue_copy = []
+                with self.lock:
+                    # Copy relevant tasks into a separate queue so we can work on them.
+                    queue_copy.extend(self.queue)
                     self.queue = []
+
+                print 'Clearing task queue...'
+                pending_task_id = None
+                for descriptor, task in queue_copy:
+                    if pending_task_id:
+                        # We need to wait at least 30 secs for the last task to finish before
+                        # submitting the next. The ordering of deletes/moves may be important.
+                        for _ in xrange(30):
+                            status, msg, data = self.direct_api.task(pending_task_id)
+                            if data['completion_time']:
+                                break
+                            time.sleep(1)
+                    if descriptor[0] == 'delete':
+                        _, _, data = self.direct_api.delete(task)
+                        pending_task_id = data['task_id']
+                        print '\t' + data['message']
+                    else:  # Transfer
+                        _, _, data = self.direct_api.transfer(task)
+                        pending_task_id = data['task_id']
+                        print '\t' + data['message']
             if self.closing:
                 return
-            time.sleep(2)
+            time.sleep(5)
 
     def AddDeletion(self, endpoint, path):
         descriptor = ('delete', endpoint)
@@ -152,5 +164,17 @@ class AsyncTaskQueue(object):
                 self.queue[-1][1].add_item(path)
             else:
                 task = api_client.Delete(self.api.SubmissionID(), endpoint, recursive=True)
+                task.add_item(path)
+                self.queue.append((descriptor, task))
+            self.last_change = time.time()
+
+    def AddTransfer(self, src_endpoint, src_path, dest_endpoint, dest_path):
+        descriptor = ('transfer', src_endpoint, dest_endpoint)
+        with self.lock:
+            if self.queue and self.queue[-1][0] == descriptor:
+                self.queue[-1][1].add_item(src_path, dest_path, recursive=True)
+            else:
+                task = api_client.Transfer(self.api.SubmissionID(), src_endpoint, dest_endpoint)
+                task.add_item(src_path, dest_path, recursive=True)
                 self.queue.append((descriptor, task))
             self.last_change = time.time()

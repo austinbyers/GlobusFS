@@ -711,9 +711,10 @@ class Operations(object):
     '''
 
     def __call__(self, op, *args):
-        now = datetime.datetime.now()
-        print '[fuse %02d:%02d:%02d.%d]' % (now.hour, now.minute, now.second, now.microsecond),
-        print op, tuple(x if len(str(x)) < 100 else str(x)[:100] + '...' for x in args)
+        # Uncomment to see each filesystem call.
+        # now = datetime.datetime.now()
+        # print '[fuse %02d:%02d:%02d.%d]' % (now.hour, now.minute, now.second, now.microsecond),
+        # print op, tuple(x if len(str(x)) < 100 else str(x)[:100] + '...' for x in args)
 
         if not hasattr(self, op):
             raise FuseOSError(EFAULT)

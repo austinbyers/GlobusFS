@@ -134,7 +134,7 @@ class AsyncTaskQueue(object):
                     queue_copy.extend(self.queue)
                     self.queue = []
 
-                print 'Clearing task queue...'
+                # print 'Clearing task queue...'
                 pending_task_id = None
                 for descriptor, task in queue_copy:
                     if pending_task_id:
@@ -155,7 +155,7 @@ class AsyncTaskQueue(object):
                         print '\t' + data['message']
             if self.closing:
                 return
-            time.sleep(5)
+            time.sleep(10)
 
     def AddDeletion(self, endpoint, path):
         descriptor = ('delete', endpoint)
